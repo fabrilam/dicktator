@@ -605,15 +605,23 @@ class ServerApp:
         os._exit(0)
 
 if __name__ == "__main__":
-    # Check if port is already in use before starting
+    # Single-instance enforcement via a held named mutex.
+    # First instance owns it (bInitialOwner=True). A second instance detects
+    # it is already owned (WAIT_TIMEOUT) and exits. If the previous owner
+    # crashed, the mutex is abandoned (WAIT_ABANDONED) and we take over.
     try:
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.3)
-        s.connect(("127.0.0.1", PORT))
-        s.close()
-        print(f"Port {PORT} is already in use. Server may already be running.", flush=True)
-        sys.exit(0)
-    except (ConnectionRefusedError, OSError):
-        pass
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        hmutex = kernel32.CreateMutexW(None, True, "DicktatorServerSingleton")
+        if hmutex and kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            res = kernel32.WaitForSingleObject(hmutex, 0)
+            if res == 0x00000102:  # WAIT_TIMEOUT — a live instance holds it
+                print("Server already running", flush=True)
+                sys.exit(0)
+            # WAIT_ABANDONED (0x80) — previous owner died; we now own it
+        elif not hmutex:
+            print("Failed to acquire single-instance mutex", flush=True)
+            sys.exit(1)
+    except Exception as e:
+        print(f"Mutex check skipped: {e}", flush=True)
     ServerApp()
