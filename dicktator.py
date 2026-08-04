@@ -436,7 +436,7 @@ class DictationApp:
         self._no_model_label = ttk.Label(
             main, text="\u26a0 No model active \u2014 open the Dicktator Server and click Activate on a model",
             foreground="#b00000", font=("Segoe UI", 9, "bold"))
-        self._no_model_label.pack(anchor=tk.W, pady=(2, 0))
+        self._no_model_label.pack_forget()  # hidden until a model is missing
 
         row = ttk.Frame(main)
         row.pack(fill=tk.X, pady=2)
@@ -809,13 +809,6 @@ class DictationApp:
                     print("[Response] no_model - asking user to enable a model", flush=True)
                     self.root.after(0, lambda: self._set_no_model(True))
                     self._splash_ask_model()
-                    if has_model:
-                        if not getattr(self, '_ui_built', False):
-                            self._schedule_build_ui()
-                    elif not getattr(self, '_ui_built', False):
-                        # Splash must explicitly ask for a model until one is active
-                        self.root.after(0, lambda: self._splash_ask_model())
-                        self.root.after(2500, self._query_active_model)
         except (OSError, ValueError) as e:
             print(f"[Response] reader error: {e}", flush=True)
             self.root.after(0, self._handle_disconnect)
