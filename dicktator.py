@@ -231,10 +231,11 @@ class DictationApp:
         self._splash_img = img
         ttk.Label(self._splash, image=img).pack()
         self._splash_text = tk.StringVar(self._splash, "")
-        ttk.Label(self._splash, textvariable=self._splash_text,
+        self._splash_text_label = ttk.Label(self._splash, textvariable=self._splash_text,
                   font=("Segoe UI", 9), foreground="#555",
                   wraplength=250, justify=tk.CENTER,
-                  anchor=tk.CENTER).pack(pady=(4, 0), padx=8, fill=tk.X)
+                  anchor=tk.CENTER)
+        self._splash_text_label.pack(pady=(4, 0), padx=8, fill=tk.X)
         ttk.Label(self._splash, text="(Esc to close)",
                   foreground="#aaa", font=("Segoe UI", 7)).pack(pady=(2, 0))
         self._splash.bind("<Escape>", lambda e: self._close_and_exit())
@@ -251,13 +252,36 @@ class DictationApp:
             self._splash_text.set(text)
 
     def _splash_ask_model(self):
-        """Show an explicit request for a voice model on the splash screen."""
+        """Show an explicit (blinking) request for a voice model on the splash."""
+        self._splash_blinking = True
         self._set_splash(
-            "\u26a0  NO VOICE MODEL ACTIVE\n\n"
-            "Open the Dicktator Server and click ACTIVATE\n"
-            "on a model. This window will open automatically\n"
-            "once a model is running.\n\n"
-            "(Esc to close)")
+            "\u26a0 NO VOICE MODEL ACTIVE\n\n"
+            "Open the Dicktator Server\n"
+            "and click ACTIVATE on a model.\n\n"
+            "This window opens automatically\n"
+            "once a model is running.")
+        self._splash_blink()
+
+    def _splash_blink(self):
+        if not getattr(self, '_splash_blinking', False):
+            return
+        if not hasattr(self, '_splash_text_label'):
+            return
+        try:
+            cur = self._splash_text_label.cget("foreground")
+            self._splash_text_label.config(
+                foreground="#cc0000" if cur != "#cc0000" else "#ffd76a")
+        except tk.TclError:
+            return
+        self._splash_blink_job = self.root.after(500, self._splash_blink)
+
+    def _stop_splash_blink(self):
+        self._splash_blinking = False
+        if hasattr(self, '_splash_blink_job'):
+            try:
+                self.root.after_cancel(self._splash_blink_job)
+            except Exception:
+                pass
 
     def _update_model_labels(self, label):
         if hasattr(self, 'model_label'):
@@ -320,6 +344,7 @@ class DictationApp:
 
     def _build_ui(self):
         self._ui_built = True
+        self._stop_splash_blink()
         if self._splash:
             try:
                 self._splash.destroy()
@@ -1319,9 +1344,11 @@ class DictationApp:
                 self._model_overlay.lift()
             else:
                 self._model_overlay.place_forget()
-        # While the splash is still visible, tell the user what to do.
-        if no_model and hasattr(self, '_splash_text') and self._splash_text:
-            self._splash_text.set("No voice model active - open the Server and click ACTIVATE")
+        if not no_model:
+            self._stop_splash_blink()
+        elif not getattr(self, '_ui_built', False):
+            # Splash still visible — show the explicit blinking request.
+            self._splash_ask_model()
 
     def _query_active_model(self):
         if not self._server_sock:
