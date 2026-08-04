@@ -267,7 +267,8 @@ class DictationApp:
             self._center_splash()
 
     def _splash_ask_model(self):
-        """Show an explicit red request for a voice model on the splash."""
+        """Show an explicit blinking request for a voice model on the splash."""
+        self._splash_blinking = True
         self._set_splash(
             "\u26a0 NO VOICE MODEL ACTIVE \u26a0\n\n"
             "Open the Dicktator Server\n"
@@ -279,10 +280,28 @@ class DictationApp:
                 self._splash_text_label.config(foreground="#cc0000")
             except tk.TclError:
                 pass
+        self._splash_blink()
+
+    def _splash_blink(self):
+        if not getattr(self, '_splash_blinking', False):
+            return
+        if not hasattr(self, '_splash_text_label'):
+            return
+        try:
+            cur = self._splash_text_label.cget("foreground")
+            self._splash_text_label.config(
+                foreground="#cc0000" if cur != "#cc0000" else "#ffd76a")
+        except tk.TclError:
+            return
+        self._splash_blink_job = self.root.after(500, self._splash_blink)
 
     def _stop_splash_blink(self):
-        # Blink was removed; kept as a no-op for compatibility.
-        pass
+        self._splash_blinking = False
+        if hasattr(self, '_splash_blink_job'):
+            try:
+                self.root.after_cancel(self._splash_blink_job)
+            except Exception:
+                pass
 
     def _update_model_labels(self, label):
         if hasattr(self, 'model_label'):
