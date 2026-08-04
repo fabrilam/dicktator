@@ -21,3 +21,15 @@ session-*.md
 build/
 dist/
 *.spec
+
+# Test / debug scripts
+mic_test.py
+sound_test.py
+target_sender.py
+
+# Design source files
+*.psd
+
+# Generated icons
+dicktator.ico
+dicktator_splash.ico
