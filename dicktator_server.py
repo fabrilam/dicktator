@@ -459,12 +459,19 @@ class ServerApp:
         self._refresh_all_ui()
 
     def _deactivate_model(self, key):
+        was_active = False
         if self._engine == "vosk" and key in self._active_keys:
-            self._active_keys = []
-            self._set_status("Deactivated")
-            self._set_detail("No active model")
+            was_active = True
         elif self._engine == "whisper" and key == f"whisper-{self._whisper_size}":
+            was_active = True
+        if was_active:
             self._active_keys = []
+            # Clear the server's runtime state so clients are told no model
+            # is active (Handler returns models=[] and sends no_model).
+            if hasattr(self, "_server"):
+                self._server.active_keys = []
+                self._server.models = {}
+            save_config({"engine": self._engine, "active_model": ""})
             self._set_status("Deactivated")
             self._set_detail("No active model")
         self._update_open_btn_text()
