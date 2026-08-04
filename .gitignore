@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Vosk models (downloaded via Manage Models UI)
+vosk-model-*/
+*.zip
+
+# Machine-specific config
+server_config.json
+
+# User data
+dictation_output.txt
+notes_*.log
+
+# Session exports
+session-*.md
+
+# Build artifacts
+build/
+dist/
+*.spec

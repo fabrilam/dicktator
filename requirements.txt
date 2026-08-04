@@ -1,0 +1,6 @@
+vosk
+sounddevice
+numpy
+keyboard
+Pillow
+faster-whisper
