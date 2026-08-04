@@ -119,6 +119,7 @@ COMMAND_MAP_EN = [
     ("san prompt", "send"), ("sun prompt", "send"),
     ("send this", "send"), ("submit prompt", "send"),
     ("send", "send"), ("sent", "send"), ("sen", "send"), ("sand", "send"), ("submit", "send"),
+    ("period", "period"), ("dot", "period"),
 ]
 
 COMMAND_MAP_ES = [
