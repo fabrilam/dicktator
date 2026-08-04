@@ -230,11 +230,53 @@ class DictationApp:
         img = ImageTk.PhotoImage(Image.open(splash_path).resize((256, 256)))
         self._splash_img = img
         ttk.Label(self._splash, image=img).pack()
-        self._center_window(self._splash, 256, 256)
+        self._splash_text = tk.StringVar(self._splash, "")
+        ttk.Label(self._splash, textvariable=self._splash_text,
+                  font=("Segoe UI", 9), foreground="#555",
+                  wraplength=240, justify=tk.CENTER).pack(pady=(4, 0), padx=8)
+        ttk.Label(self._splash, text="(Esc to close)",
+                  foreground="#aaa", font=("Segoe UI", 7)).pack(pady=(2, 0))
+        self._splash.bind("<Escape>", lambda e: self._close_and_exit())
+        self._splash.bind("<Button-1>", lambda e: self._close_and_exit())
+        self._center_window(self._splash, 256, 320)
         self.root.update()
 
     def _set_splash(self, text):
         print(f"[Splash] {text}")
+        if hasattr(self, '_splash_text') and self._splash_text:
+            self._splash_text.set(text)
+
+    def _server_unavailable(self):
+        """Server could not be reached — tell the user and exit cleanly."""
+        try:
+            self._set_splash("No server found. Close and launch the Dicktator Server.")
+            from tkinter import messagebox
+            messagebox.showerror(
+                "No Server",
+                "Could not connect to the Dicktator Server.\n\n"
+                "Launch the server, enable a voice model (click Activate),\n"
+                "then open Dicktator again.")
+        except tk.TclError:
+            pass
+        self._close_and_exit()
+
+    def _close_and_exit(self):
+        self._running = False
+        if hasattr(self, '_splash') and self._splash:
+            try:
+                self._splash.destroy()
+            except tk.TclError:
+                pass
+            self._splash = None
+        if hasattr(self, '_server_sock') and self._server_sock:
+            try:
+                self._server_sock.close()
+            except OSError:
+                pass
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
     def _build_ui(self):
         if self._splash:
@@ -256,6 +298,7 @@ class DictationApp:
         self._populate_devices()
         self._refresh_windows()
         self._start_audio()
+        self._query_active_model()
         self._poll()
 
     # ------------------------------------------------------------------
@@ -290,6 +333,11 @@ class DictationApp:
         self.style_combo.current(0)
         self.style_combo.pack(side=tk.RIGHT)
         self.style_combo.bind("<<ComboboxSelected>>", self._on_style_change)
+
+        self._no_model_label = ttk.Label(
+            main, text="\u26a0 No model active \u2014 open the Dicktator Server and click Activate on a model",
+            foreground="#b00000", font=("Segoe UI", 9, "bold"))
+        self._no_model_label.pack(anchor=tk.W, pady=(2, 0))
 
         row = ttk.Frame(main)
         row.pack(fill=tk.X, pady=2)
@@ -400,6 +448,19 @@ class DictationApp:
 
         self._on_mode_change()
         self._commands_hint_label.config(text=self._build_commands_hint())
+
+        # Dark overlay shown when no model is active
+        self._model_overlay = tk.Frame(self.root, bg="#1e1e1e")
+        self._overlay_label = ttk.Label(
+            self._model_overlay,
+            text="\u26a0  No voice model active\n\n"
+                 "Open the Dicktator Server and click ACTIVATE\n"
+                 "on a model before using Dicktator.\n\n"
+                 "Having the server open is not enough \u2014\na model must be loaded.",
+            foreground="#ffd76a", font=("Segoe UI", 13, "bold"),
+            background="#1e1e1e", justify=tk.CENTER)
+        self._overlay_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        self._model_overlay.place_forget()
 
     def _populate_devices(self):
         try:
@@ -577,7 +638,8 @@ class DictationApp:
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
 
-        for attempt in range(30):
+        # Wait up to ~10s for the server, then give up gracefully.
+        for attempt in range(10):
             time.sleep(1)
             try:
                 s2 = socket.socket()
@@ -591,7 +653,7 @@ class DictationApp:
             except (ConnectionRefusedError, OSError):
                 try: s2.close()
                 except: pass
-        self.root.after(0, lambda m=_("server_failed"): self._set_splash(m))
+        self.root.after(0, self._server_unavailable)
 
     def _response_reader(self):
         sock = self._server_sock
@@ -632,8 +694,11 @@ class DictationApp:
                         label = f"{eng}: {', '.join(models)}"
                     else:
                         label = str(info)
+                        models = []
+                    has_model = bool(models)
                     self.root.after(0, lambda: self.model_label.config(text=label))
                     self.root.after(0, lambda: self.stream_engine_label.config(text=label))
+                    self.root.after(0, lambda: self._set_no_model(not has_model))
         except (OSError, ValueError) as e:
             print(f"[Response] reader error: {e}", flush=True)
 
@@ -1181,6 +1246,22 @@ class DictationApp:
 
         threading.Thread(target=_type_and_report, daemon=True).start()
 
+    def _set_no_model(self, no_model):
+        if hasattr(self, '_no_model_label'):
+            if no_model:
+                self._no_model_label.pack(anchor=tk.W, pady=(2, 0))
+            else:
+                self._no_model_label.pack_forget()
+        if hasattr(self, '_model_overlay'):
+            if no_model:
+                self._model_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+                self._model_overlay.lift()
+            else:
+                self._model_overlay.place_forget()
+        # While the splash is still visible, tell the user what to do.
+        if no_model and hasattr(self, '_splash_text') and self._splash_text:
+            self._splash_text.set("No voice model active - open the Server and click ACTIVATE")
+
     def _query_active_model(self):
         if not self._server_sock:
             return
@@ -1220,6 +1301,12 @@ class DictationApp:
         rms = min(self._last_rms, 100)
         self.rms_bar["value"] = rms if self.capturing else 0
 
+        # Re-query model state every ~3s so the overlay updates when a model
+        # is activated on the server while the app is running.
+        self._poll_count = getattr(self, '_poll_count', 0) + 1
+        if self._poll_count % 30 == 0:
+            self._query_active_model()
+
         self.root.after(100, self._poll)
 
     def _sync_gui(self):
@@ -1256,4 +1343,20 @@ class DictationApp:
 
 
 if __name__ == "__main__":
+    # Single-instance enforcement so only one Dicktator client runs.
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        hmutex = kernel32.CreateMutexW(None, True, "DicktatorClientSingleton")
+        if hmutex and kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            res = kernel32.WaitForSingleObject(hmutex, 0)
+            if res == 0x00000102:  # WAIT_TIMEOUT — a live instance holds it
+                print("Dicktator already running", flush=True)
+                sys.exit(0)
+            # WAIT_ABANDONED — previous owner died; we now own it
+        elif not hmutex:
+            print("Failed to acquire single-instance mutex", flush=True)
+            sys.exit(1)
+    except Exception as e:
+        print(f"Mutex check skipped: {e}", flush=True)
     DictationApp()
