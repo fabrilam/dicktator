@@ -193,9 +193,19 @@ class Handler(socketserver.StreamRequestHandler):
                 t = msg.get("t")
                 if t == "audio":
                     data = base64.b64decode(msg["d"])
-                    if self.server.engine == "vosk":
-                        if not hasattr(self, '_recs') or not self._recs:
+                    if not self.server.models:
+                        # No model active — tell the client to ask for one.
+                        if not getattr(self, '_sent_no_model', False):
+                            self._sent_no_model = True
+                            out.write(json.dumps({"t": "no_model"}).encode() + b"\n")
+                            out.flush()
+                    elif self.server.engine == "vosk":
+                        # Rebuild recognizers if the active model set changed
+                        model_keys = tuple(sorted(self.server.models.keys()))
+                        if getattr(self, '_recs_keys', None) != model_keys:
                             self._recs = {k: KaldiRecognizer(m, 16000) for k, m in self.server.models.items()}
+                            self._recs_keys = model_keys
+                            self._sent_no_model = False
                         recs = self._recs
                         finals = []
                         partials = []
@@ -500,7 +510,31 @@ class ServerApp:
                 self.detail_label.config(text=f"Previously: {LANGUAGES[target]['name']} — click Activate")
         else:
             self.detail_label.config(text=f"Previously: Whisper {self._whisper_size} — click Activate")
+
+        # Start listening immediately (even with no model) so Dicktator can
+        # connect and be told that a model is required.
+        self._ensure_server_running()
         self._refresh_all_ui()
+
+    def _ensure_server_running(self):
+        """Create the socket server if it doesn't exist yet (no model needed)."""
+        if hasattr(self, "_server"):
+            return
+        try:
+            addr = ("127.0.0.1", PORT)
+            self._server = Server({}, [], self._engine, addr,
+                status_cb=self._on_client_change,
+                whisper_size=self._whisper_size, whisper_lang=self._whisper_lang,
+                whisper_preset=self._whisper_preset)
+            self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+            self._thread.start()
+            self._set_status("Waiting for model...")
+            self._set_detail(f"Port {PORT} open - no model active yet")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._set_status("Error starting listener")
+            self._set_detail(str(e))
 
     def _activate_model(self, key=None):
         if not key:
@@ -596,8 +630,14 @@ class ServerApp:
         )
 
     def _quit(self):
+        # Deactivate all models on shutdown so clients know to ask for one.
+        self._active_keys = []
+        save_config({"engine": self._engine, "active_model": ""})
         if hasattr(self, "_server"):
-            self._server.shutdown()
+            try:
+                self._server.shutdown()
+            except Exception:
+                pass
         try:
             self.root.destroy()
         except tk.TclError:

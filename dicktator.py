@@ -233,18 +233,58 @@ class DictationApp:
         self._splash_text = tk.StringVar(self._splash, "")
         ttk.Label(self._splash, textvariable=self._splash_text,
                   font=("Segoe UI", 9), foreground="#555",
-                  wraplength=240, justify=tk.CENTER).pack(pady=(4, 0), padx=8)
+                  wraplength=250, justify=tk.CENTER,
+                  anchor=tk.CENTER).pack(pady=(4, 0), padx=8, fill=tk.X)
         ttk.Label(self._splash, text="(Esc to close)",
                   foreground="#aaa", font=("Segoe UI", 7)).pack(pady=(2, 0))
         self._splash.bind("<Escape>", lambda e: self._close_and_exit())
         self._splash.bind("<Button-1>", lambda e: self._close_and_exit())
-        self._center_window(self._splash, 256, 320)
+        self._center_window(self._splash, 256, 460)
         self.root.update()
 
     def _set_splash(self, text):
-        print(f"[Splash] {text}")
+        try:
+            print(f"[Splash] {text}")
+        except Exception:
+            pass
         if hasattr(self, '_splash_text') and self._splash_text:
             self._splash_text.set(text)
+
+    def _splash_ask_model(self):
+        """Show an explicit request for a voice model on the splash screen."""
+        self._set_splash(
+            "\u26a0  NO VOICE MODEL ACTIVE\n\n"
+            "Open the Dicktator Server and click ACTIVATE\n"
+            "on a model. This window will open automatically\n"
+            "once a model is running.\n\n"
+            "(Esc to close)")
+
+    def _update_model_labels(self, label):
+        if hasattr(self, 'model_label'):
+            try:
+                self.model_label.config(text=label)
+            except tk.TclError:
+                pass
+        if hasattr(self, 'stream_engine_label'):
+            try:
+                self.stream_engine_label.config(text=label)
+            except tk.TclError:
+                pass
+
+    def _splash_model_loop(self):
+        """Poll the server for an active model while the splash is showing."""
+        if getattr(self, '_ui_built', False) or not self._running:
+            return
+        self._query_active_model()
+        self.root.after(2000, self._splash_model_loop)
+
+    def _handle_disconnect(self):
+        """Server connection lost (closed or deactivated) — ask for a model."""
+        print("[Disconnect] server connection lost", flush=True)
+        self._set_no_model(True)
+        if not getattr(self, '_ui_built', False):
+            self._splash_ask_model()
+            self._splash_model_loop()
 
     def _server_unavailable(self):
         """Server could not be reached — tell the user and exit cleanly."""
@@ -279,6 +319,7 @@ class DictationApp:
             pass
 
     def _build_ui(self):
+        self._ui_built = True
         if self._splash:
             try:
                 self._splash.destroy()
@@ -613,8 +654,9 @@ class DictationApp:
                 s.connect(("127.0.0.1", SERVER_PORT))
                 s.settimeout(None)  # blocking mode for reader
                 self._server_sock = s
-                self._schedule_build_ui()
                 threading.Thread(target=self._response_reader, daemon=True).start()
+                self.root.after(200, self._splash_model_loop)
+                self._query_active_model()
                 return
             except (ConnectionRefusedError, OSError):
                 try: s.close()
@@ -647,8 +689,9 @@ class DictationApp:
                 s2.connect(("127.0.0.1", SERVER_PORT))
                 s2.settimeout(None)  # blocking mode for reader
                 self._server_sock = s2
-                self._schedule_build_ui()
                 threading.Thread(target=self._response_reader, daemon=True).start()
+                self.root.after(200, self._splash_model_loop)
+                self._query_active_model()
                 return
             except (ConnectionRefusedError, OSError):
                 try: s2.close()
@@ -696,11 +739,28 @@ class DictationApp:
                         label = str(info)
                         models = []
                     has_model = bool(models)
-                    self.root.after(0, lambda: self.model_label.config(text=label))
-                    self.root.after(0, lambda: self.stream_engine_label.config(text=label))
+                    self.root.after(0, lambda: self._update_model_labels(label))
                     self.root.after(0, lambda: self._set_no_model(not has_model))
+                    if has_model:
+                        if not getattr(self, '_ui_built', False):
+                            self._schedule_build_ui()
+                    else:
+                        self._splash_ask_model()
+                elif t == "no_model":
+                    # Server has no model active — ask the user to enable one.
+                    print("[Response] no_model - asking user to enable a model", flush=True)
+                    self.root.after(0, lambda: self._set_no_model(True))
+                    self._splash_ask_model()
+                    if has_model:
+                        if not getattr(self, '_ui_built', False):
+                            self._schedule_build_ui()
+                    elif not getattr(self, '_ui_built', False):
+                        # Splash must explicitly ask for a model until one is active
+                        self.root.after(0, lambda: self._splash_ask_model())
+                        self.root.after(2500, self._query_active_model)
         except (OSError, ValueError) as e:
             print(f"[Response] reader error: {e}", flush=True)
+            self.root.after(0, self._handle_disconnect)
 
     def _audio_worker(self):
         while self._running:
@@ -715,6 +775,7 @@ class DictationApp:
                 except OSError:
                     self._server_sock = None
                     print("[Audio] send error, socket reset", flush=True)
+                    self.root.after(0, self._handle_disconnect)
             except queue.Empty:
                 pass
 
