@@ -269,7 +269,10 @@ class DictationApp:
 
     def _splash_ask_model(self):
         """Show an explicit blinking request for a voice model on the splash."""
+        if getattr(self, '_splash_blinking', False):
+            return  # already blinking — keep a stable cadence
         self._splash_blinking = True
+        self._splash_blink_state = False  # start on red
         self._set_splash(
             "\u26a0 NO VOICE MODEL ACTIVE \u26a0\n\n"
             "Open the Dicktator Server\n"
@@ -281,20 +284,29 @@ class DictationApp:
                 self._splash_text_label.config(fg="#cc0000")
             except tk.TclError:
                 pass
-        self._splash_blink()
+        self._schedule_blink()
+
+    def _schedule_blink(self):
+        if hasattr(self, '_splash_blink_job'):
+            try:
+                self.root.after_cancel(self._splash_blink_job)
+            except Exception:
+                pass
+        self._splash_blink_job = self.root.after(1000, self._splash_blink)
 
     def _splash_blink(self):
         if not getattr(self, '_splash_blinking', False):
             return
         if not hasattr(self, '_splash_text_label'):
             return
-        state = not getattr(self, '_splash_blink_state', False)
-        self._splash_blink_state = state
+        # Toggle between amber and red, each held for a full second
+        self._splash_blink_state = not getattr(self, '_splash_blink_state', False)
+        color = "#ffd76a" if self._splash_blink_state else "#cc0000"
         try:
-            self._splash_text_label.config(fg="#cc0000" if state else "#ffd76a")
+            self._splash_text_label.config(fg=color)
         except tk.TclError:
             return
-        self._splash_blink_job = self.root.after(500, self._splash_blink)
+        self._schedule_blink()
 
     def _stop_splash_blink(self):
         self._splash_blinking = False
