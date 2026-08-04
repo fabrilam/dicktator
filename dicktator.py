@@ -231,13 +231,14 @@ class DictationApp:
         self._splash_img = img
         ttk.Label(self._splash, image=img).pack()
         self._splash_text = tk.StringVar(self._splash, "")
-        self._splash_text_label = ttk.Label(self._splash, textvariable=self._splash_text,
-                  font=("Segoe UI", 9), foreground="#555",
+        splash_bg = self._splash.cget("bg")
+        self._splash_text_label = tk.Label(self._splash, textvariable=self._splash_text,
+                  font=("Segoe UI", 9), fg="#555", bg=splash_bg,
                   wraplength=260, justify=tk.CENTER,
                   anchor=tk.CENTER)
         self._splash_text_label.pack(pady=(4, 0), padx=10)
-        ttk.Label(self._splash, text="(Esc to close)",
-                  foreground="#aaa", font=("Segoe UI", 7)).pack(pady=(2, 0))
+        tk.Label(self._splash, text="(Esc to close)",
+                 fg="#aaa", bg=splash_bg, font=("Segoe UI", 7)).pack(pady=(2, 0))
         self._splash.bind("<Escape>", lambda e: self._close_and_exit())
         self._splash.bind("<Button-1>", lambda e: self._close_and_exit())
         self._center_splash()
@@ -277,7 +278,7 @@ class DictationApp:
             "once a model is running.")
         if hasattr(self, '_splash_text_label'):
             try:
-                self._splash_text_label.config(foreground="#cc0000")
+                self._splash_text_label.config(fg="#cc0000")
             except tk.TclError:
                 pass
         self._splash_blink()
@@ -287,10 +288,10 @@ class DictationApp:
             return
         if not hasattr(self, '_splash_text_label'):
             return
+        state = not getattr(self, '_splash_blink_state', False)
+        self._splash_blink_state = state
         try:
-            cur = self._splash_text_label.cget("foreground")
-            self._splash_text_label.config(
-                foreground="#cc0000" if cur != "#cc0000" else "#ffd76a")
+            self._splash_text_label.config(fg="#cc0000" if state else "#ffd76a")
         except tk.TclError:
             return
         self._splash_blink_job = self.root.after(500, self._splash_blink)
