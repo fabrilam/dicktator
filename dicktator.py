@@ -213,6 +213,9 @@ class DictationApp:
         win.geometry(f"{w}x{h}+{x}+{y}")
 
     def _schedule_build_ui(self):
+        if getattr(self, '_build_scheduled', False) or getattr(self, '_ui_built', False):
+            return  # only ever schedule one build
+        self._build_scheduled = True
         elapsed = time.time() - self._splash_start
         delay = max(0, 1.5 - elapsed)
         self.root.after(int(delay * 1000), self._build_ui)
@@ -377,7 +380,10 @@ class DictationApp:
             pass
 
     def _build_ui(self):
+        if getattr(self, '_ui_built', False):
+            return  # guard against duplicate builds
         self._ui_built = True
+        print("[Build] UI built", flush=True)
         self._stop_splash_blink()
         if self._splash:
             try:
@@ -385,6 +391,11 @@ class DictationApp:
             except tk.TclError:
                 pass
             self._splash = None
+        for w in self.root.winfo_children():
+            try:
+                w.destroy()
+            except tk.TclError:
+                pass
         self.style = ttk.Style()
         try:
             self.style.theme_use("vista")
@@ -714,8 +725,8 @@ class DictationApp:
                 s.settimeout(None)  # blocking mode for reader
                 self._server_sock = s
                 threading.Thread(target=self._response_reader, daemon=True).start()
+                # Splash loop performs the initial query, then polls.
                 self.root.after(200, self._splash_model_loop)
-                self._query_active_model()
                 return
             except (ConnectionRefusedError, OSError):
                 try: s.close()
@@ -750,7 +761,6 @@ class DictationApp:
                 self._server_sock = s2
                 threading.Thread(target=self._response_reader, daemon=True).start()
                 self.root.after(200, self._splash_model_loop)
-                self._query_active_model()
                 return
             except (ConnectionRefusedError, OSError):
                 try: s2.close()
@@ -940,21 +950,26 @@ class DictationApp:
         self._do_cap = True
 
     def _append_to_widget(self, text):
-        if self._do_cap and text:
-            text = text[0].upper() + text[1:]
-            self._do_cap = False
-        current = self.buffer_text.get(1.0, "end-1c").strip()
-        with self._buffer_lock:
-            if self.buffer:
-                self.buffer += " " + text
+        if not hasattr(self, 'buffer_text'):
+            return
+        try:
+            if self._do_cap and text:
+                text = text[0].upper() + text[1:]
+                self._do_cap = False
+            current = self.buffer_text.get(1.0, "end-1c").strip()
+            with self._buffer_lock:
+                if self.buffer:
+                    self.buffer += " " + text
+                else:
+                    self.buffer = text
+            if current:
+                self.buffer_text.insert(tk.END, f" [...] {text}")
             else:
-                self.buffer = text
-        if current:
-            self.buffer_text.insert(tk.END, f" [...] {text}")
-        else:
-            self.buffer_text.insert(tk.END, text)
-        self.buffer_text.see(tk.END)
-        self._sound_tick()
+                self.buffer_text.insert(tk.END, text)
+            self.buffer_text.see(tk.END)
+            self._sound_tick()
+        except tk.TclError:
+            pass
 
     def _add_to_buffer(self, text):
         self.root.after(0, self._append_to_widget, text)
